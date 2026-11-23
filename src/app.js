@@ -1,6 +1,8 @@
 // The integration service's HTTP routes. Add new routes to the table below.
 
+import { config } from './config.js';
 import { chalkShopWebhookHandler } from './integrations/chalk-shop/index.js';
+import { slotbookWebhookHandler } from './integrations/slotbook/index.js';
 import { HttpError, sendHtml, sendJson } from './lib/http.js';
 
 /**
@@ -15,6 +17,11 @@ export function createApp(deps) {
     { method: 'GET', path: '/', handler: (req, res) => sendHtml(res, 200, homePage()) },
     { method: 'GET', path: '/health', handler: (req, res) => sendJson(res, 200, { status: 'ok' }) },
     { method: 'POST', path: '/webhooks/chalk-shop', handler: chalkShopWebhookHandler(deps) },
+    {
+      method: 'POST',
+      path: '/webhooks/slotbook',
+      handler: slotbookWebhookHandler({ ...deps, webhookSecret: () => config.slotbookWebhookSecret }),
+    },
   ];
 
   return async (req, res) => {
@@ -44,6 +51,7 @@ function homePage() {
   <ul>
     <li>Front-desk waivers: CSV import (<code>npm run import -- front-desk-waivers &lt;file&gt;</code>)</li>
     <li>Chalk Shop: webhook at <code>POST /webhooks/chalk-shop</code></li>
+    <li>SlotBook: webhook at <code>POST /webhooks/slotbook</code>; export import (<code>npm run import -- slotbook &lt;file&gt;</code>)</li>
   </ul>
 </body>
 </html>`;

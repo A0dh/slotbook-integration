@@ -13,8 +13,11 @@ export const GUARDIAN_AGE = 18;
 export const MAX_AGE = 100;
 export const SESSION_TYPES = ['bouldering', 'top-rope', 'lead', 'course', 'other'];
 
-// Also used as the CRM idempotency key and in logs, so kept to a safe alphabet.
-const BOOKING_ID = /^[A-Za-z0-9_-]{1,64}$/;
+// Booking ids are also the CRM idempotency key and appear in logs, so kept to a safe alphabet.
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** @param {unknown} value */
+export const isSafeId = (value) => typeof value === 'string' && SAFE_ID.test(value);
 
 /**
  * @param {string} dateOfBirth valid `YYYY-MM-DD`
@@ -31,7 +34,7 @@ export function createValidator({ now = Date.now } = {}) {
     const problems = [];
     const today = new Date(now()).toISOString().slice(0, 10);
 
-    if (!BOOKING_ID.test(bookingId)) problems.push('booking_id_invalid');
+    if (!isSafeId(bookingId)) problems.push('booking_id_invalid');
 
     for (const [field, value] of [['first_name', member.firstName], ['last_name', member.lastName]]) {
       if (value === '') problems.push(`${field}_missing`);

@@ -5,10 +5,12 @@
 
 import { createDeps } from './deps.js';
 import { importWaiverFile } from './integrations/front-desk-waivers/index.js';
+import { importSlotbookFile } from './integrations/slotbook/index.js';
 
 /** File importers, by integration name. Add new ones here. */
 const importers = {
   'front-desk-waivers': importWaiverFile,
+  slotbook: importSlotbookFile,
 };
 
 const [command, name, filePath] = process.argv.slice(2);

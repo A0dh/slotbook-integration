@@ -8,6 +8,7 @@
 //   { "rules": [ { "field": "postcode", "op": "uk_postcode" },
 //                { "field": "sessionStart", "op": "uk_date", "format": "DD/MM/YYYY HH:mm" } ] }
 
+import { readFileSync } from 'node:fs';
 import { isCalendarDate, isUkPostcode } from '../lib/validators.js';
 
 /** Date formats `uk_date` understands: day first, as used in the UK. */
@@ -81,6 +82,32 @@ export function validateRuleSet(ruleSet, fields) {
     rules.push({ field, op, ...(op === 'uk_date' && { format }), ...(typeof reason === 'string' && { reason: reason.slice(0, 500) }) });
   });
   return { rules, errors };
+}
+
+/**
+ * Loads an approved rule set. A missing file means no cleaning yet (records still go through
+ * validation, so more are rejected); an invalid one is an error, never silently ignored.
+ * @param {string} path
+ * @param {readonly string[]} fields
+ * @returns {{ rules: Rule[], missing: boolean }}
+ */
+export function loadRuleSet(path, fields) {
+  let text;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return { rules: [], missing: true };
+    throw err;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`Rule set ${path} is not valid JSON`);
+  }
+  const { rules, errors } = validateRuleSet(parsed, fields);
+  if (errors.length > 0) throw new Error(`Rule set ${path} is invalid: ${errors.join('; ')}`);
+  return { rules, missing: false };
 }
 
 /**

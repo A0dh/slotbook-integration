@@ -24,4 +24,10 @@ export const config = {
   get chalkShopWebhookToken() {
     return required('CHALK_SHOP_WEBHOOK_TOKEN');
   },
+  get slotbookWebhookSecret() {
+    return required('SLOTBOOK_WEBHOOK_SECRET');
+  },
+  // Only the AI rule suggestions need these; the integration runs without them.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  anthropicModel: process.env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 };
