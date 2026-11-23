@@ -1,0 +1,39 @@
+{
+  "approvedAt": "2026-11-24T03:32:55.302Z",
+  "suggestedBy": "claude-sonnet-5-5",
+  "sample": "backfill.csv",
+  "rules": [
+    {
+      "field": "sessionStart",
+      "op": "uk_date",
+      "format": "DD/MM/YYYY HH:mm",
+      "reason": "3,132 sessionStart values have the shape 99/99/9999 99:99, a day-first UK date and time, while the other 46,848 are already ISO UTC."
+    },
+    {
+      "field": "dateOfBirth",
+      "op": "uk_date",
+      "format": "DD/MM/YYYY",
+      "reason": "3,132 dateOfBirth values have the shape 99/99/9999, a day-first UK date, while the rest are already ISO."
+    },
+    {
+      "field": "postcode",
+      "op": "uk_postcode",
+      "reason": "Postcodes appear in lower case (a99 9a, a9 9a), with double spaces (A99  9A) or with no space (A999A, A99A), all of which this normalises."
+    },
+    {
+      "field": "firstName",
+      "op": "title_case",
+      "reason": "Many first names are entirely lower case (shape a, 376) or all upper case (shape A, 567), which title case fixes."
+    },
+    {
+      "field": "lastName",
+      "op": "title_case",
+      "reason": "Some last names are entirely upper case (shape A, 529) or lower case (shape a, 348), which title case fixes."
+    },
+    {
+      "field": "guardianPhone",
+      "op": "uk_phone",
+      "reason": "Guardian phones appear in mixed forms such as 99999 999999, 99999999999 and +99 9999 999999 that should be put in international form."
+    }
+  ]
+}
