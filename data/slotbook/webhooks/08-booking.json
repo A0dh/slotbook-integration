@@ -1,0 +1,22 @@
+{
+  "id": "evt_00000101983e",
+  "type": "booking.created",
+  "createdAt": "2026-11-20T17:00:00Z",
+  "data": {
+    "bookingId": "SB-150008",
+    "session": {
+      "start": "2026-12-06T18:00:00Z",
+      "type": "bouldering"
+    },
+    "climber": {
+      "firstName": "Olivia",
+      "lastName": "Wright",
+      "email": "olivia.wright@",
+      "dateOfBirth": "2001-01-17",
+      "postcode": "EH9 1PR",
+      "guardian": null
+    },
+    "amountPence": 1250,
+    "notes": ""
+  }
+}

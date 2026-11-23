@@ -1,0 +1,23 @@
+{
+  "id": "evt_000000ffff25",
+  "type": "booking.created",
+  "createdAt": "2026-11-20T16:00:00Z",
+  "data": {
+    "bookingId": "SB-150007",
+    "session": {
+      "start": "2026-12-05T18:00:00Z",
+      "type": "top-rope"
+    },
+    "climber": {
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "email": "Jane.Smith@Example.com",
+      "dateOfBirth": "1988-06-21",
+      "postcode": "LS6 2AB",
+      "guardian": null
+    },
+    "amountPence": 1450,
+    "notes": "",
+    "internalScore": 87
+  }
+}

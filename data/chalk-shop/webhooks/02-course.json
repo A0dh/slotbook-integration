@@ -1,0 +1,15 @@
+{
+  "orderId": "CS-30412",
+  "placedAt": "2026-11-20T08:40:00Z",
+  "customer": {
+    "firstName": "Niamh",
+    "lastName": "Murphy",
+    "email": "niamh.murphy@example.org",
+    "dateOfBirth": "1999-03-28"
+  },
+  "item": {
+    "kind": "course",
+    "sessionStart": "2026-11-29T18:30:00Z",
+    "pricePence": 4500
+  }
+}

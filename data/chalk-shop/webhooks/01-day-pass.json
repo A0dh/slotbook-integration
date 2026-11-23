@@ -1,0 +1,15 @@
+{
+  "orderId": "CS-30411",
+  "placedAt": "2026-11-20T08:12:00Z",
+  "customer": {
+    "firstName": "Arjun",
+    "lastName": "Shah",
+    "email": "arjun.shah@example.com",
+    "dateOfBirth": "1991-07-12"
+  },
+  "item": {
+    "kind": "day-pass",
+    "sessionStart": "2026-11-22T10:00:00Z",
+    "pricePence": 1250
+  }
+}

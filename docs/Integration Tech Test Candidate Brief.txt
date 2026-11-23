@@ -1,0 +1,76 @@
+Integration Tech Test: Candidate Brief
+About this exercise
+You'll add one new integration to a small existing codebase, including a feature that uses an AI model to help set it up, then talk us through it in a 60-minute follow-up session. It should take about 3 hours.
+The scenario is fictional and not connected to our product. Bramble Wall, a made-up chain of climbing gyms, takes bookings through SlotBook, a made-up booking app, and needs them in its membership system. We won't use your code, and it remains yours. The exercise uses the same skills as our day-to-day work: reading an unfamiliar data source, mapping it to another system, and deciding what to do with data that is messy, incomplete or hostile.
+We've kept the scope deliberately small. We'd rather talk in depth about 300 lines you fully understand than skim 3,000 you don't.
+What we give you
+A zip folder containing a small integration service. All data in it is synthetic; none of it relates to real people.
+	•	Two working integrations, each following the same pipeline: receive data from a source, map it to the membership system's format, validate it, and send it on. Use them as your guide to how we structure things.
+	•	A mock membership API (called "the CRM" in the code) that runs locally. It behaves like a real third-party API, which means it doesn't always behave nicely.
+	•	The CRM's data format documented in docs/crm-schema.md.
+	•	SlotBook's documentation in docs/slotbook.md. SlotBook is the source you'll be integrating.
+	•	Sample data from SlotBook: a handful of example webhook payloads and a backfill file of historical bookings.
+	•	A Claude API key, sent to you separately. It has a spending limit, so be sensible about how much you send to the model. It's for this exercise only and will be revoked afterwards.
+The existing code isn't perfect. If you spot anything you'd change, note it in your README; you don't need to fix it.
+Your task
+Bramble Wall has started taking bookings through SlotBook and wants them in its membership system. Add a SlotBook integration that:
+	•	Receives live bookings. SlotBook sends a webhook for each new booking. Add an endpoint that accepts it. SlotBook signs each webhook; the docs explain how to check the signature.
+	•	Imports historical bookings. Add a way to run the backfill file through the same pipeline, so the gym's past SlotBook bookings end up in the CRM too.
+	•	Maps and cleans the data. Turn SlotBook records into CRM members and bookings, following docs/crm-schema.md. Make the data fit for the gym to use: consistently formatted, valid where it needs to be, and not duplicated. The gym has one firm rule: climbers under 18 must have a parent or guardian contact on record.
+	•	Uses AI to help set up the integration. We want gym staff to be able to connect a new source themselves, without a developer writing every cleaning rule. Use the Claude API to look at the incoming data and suggest how it should be cleaned or validated. A person must be able to review the suggestions before they affect any data. How you design this is up to you; be ready to explain your choices.
+	•	Deals with records it can't import. Some records won't be usable as they are. Decide what should happen to each kind, and make sure nothing is silently lost. The gym needs to know what didn't come through and why.
+	•	Sends the results to the mock CRM reliably.
+	•	Shows a run summary. After a backfill, show how many records were imported, which cleaning rules were applied, and list the rejected or flagged records with reasons. A plain HTML page or a clear command-line report is fine.
+Treat all incoming data as untrusted, and expect it to be messy: it came from members of the public typing into a form.
+Some decisions aren't specified, on purpose. Where the brief and the docs don't tell you what to do, make a sensible call and write it down in your README.
+Requirements and scope
+You must
+	•	Follow the structure of the existing integrations, or explain in your README why you didn't.
+	•	Keep secrets (such as the webhook signing secret) out of the repository. Use environment variables and update .env.example.
+	•	Write a short README covering: how to run your integration, the decisions you made (especially the unspecified ones), what you'd do next with more time, and how you used AI tools.
+You don't need to
+	•	Build a polished interface. Plain HTML or command-line output is enough.
+	•	Add authentication, user accounts or a database beyond what the repo already has.
+	•	Deploy anything. It only needs to run locally.
+	•	Write a full test suite. A few tests for the parts you think matter most are welcome, and we'll ask what you'd test.
+The AI feature
+Keep the Claude API key out of the repository and out of anything that reaches a browser. The integration should still work in a sensible way if the AI service is slow, returns something unexpected, or is unavailable. We'll ask what you send to the model and why, including members' personal data.
+What we assess
+Six areas, weighted equally. The last is assessed mainly in the follow-up session.
+Area
+What we look for
+Design
+Fits the existing structure. Clear separation between receiving, mapping, validating and sending. Sensible decisions where the brief is silent, written down.
+Data quality
+Data the gym could actually use: consistent formatting, validation where it matters, duplicates handled, nothing silently dropped.
+AI feature
+The model is used where it adds value. Its output is checked before use, a person stays in control, and the integration copes when the AI is slow, wrong or unavailable. Thought given to cost and to what personal data is sent.
+Security
+All input treated as untrusted, including by the AI. Webhook signatures checked. Secrets handled properly. Members' personal data protected, including in logs.
+Performance and reliability
+Copes with a large backfill. Behaves sensibly when the CRM is slow, rate-limited, failing or sent the same thing twice.
+Understanding
+You can explain every part of your code, predict how it behaves with data you haven't seen, and change it confidently.
+AI tools and the follow-up session
+Use AI coding tools as you normally would; we use them every day. What matters is that you understand and can stand behind every line you submit.
+In your README, include a short AI notes section: what you used AI for, and at least one thing it got wrong or that you changed after reviewing it.
+The follow-up session lasts about 60 minutes. Expect to:
+	•	Walk us through your integration and the decisions you made.
+	•	Predict how your code will handle some new SlotBook records we bring along, then run them and talk through the results.
+	•	Make a small change to your code while sharing your screen. You can use AI tools for this.
+	•	Discuss security, performance and how you'd test and run this in production.
+The new records are fair and realistic; they're the kind of data SlotBook could send. The best preparation is knowing your own code well.
+Submission and practical notes
+Topic
+Details
+Time
+Around 3 hours. Please don't go far beyond that: deciding what to leave out is part of the exercise, and we'd rather you note it in your README.
+Getting started
+The README explains how to run the existing integrations and the mock CRM. Do an initial commit of the empty starter unchanged.
+How to submit
+Push your work to your own github and share the public repository with us to review.
+Commits
+Commit as you normally would. We read the history, so small, clear commits help us follow your thinking.
+Questions
+If anything is unclear, email [TBC]. If you make an assumption instead, note it in your README.
+

@@ -1,0 +1,25 @@
+{
+  "id": "evt_000000f801a8",
+  "type": "booking.created",
+  "createdAt": "2026-11-20T11:00:00Z",
+  "data": {
+    "bookingId": "SB-150002",
+    "session": {
+      "start": "2026-11-30T18:00:00Z",
+      "type": "course"
+    },
+    "climber": {
+      "firstName": "Evie",
+      "lastName": "Okafor",
+      "email": "evie.okafor@example.org",
+      "dateOfBirth": "2013-09-02",
+      "postcode": "M14 5RT",
+      "guardian": {
+        "name": "Chidi Okafor",
+        "phone": "07700 900412"
+      }
+    },
+    "amountPence": 4500,
+    "notes": ""
+  }
+}

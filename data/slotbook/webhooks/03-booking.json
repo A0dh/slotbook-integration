@@ -1,0 +1,22 @@
+{
+  "id": "evt_000000f99ac1",
+  "type": "booking.created",
+  "createdAt": "2026-11-20T12:00:00Z",
+  "data": {
+    "bookingId": "SB-150003",
+    "session": {
+      "start": "2026-12-01T18:00:00Z",
+      "type": "bouldering"
+    },
+    "climber": {
+      "firstName": "TOM",
+      "lastName": "HUGHES",
+      "email": "tom.hughes@example.net",
+      "dateOfBirth": "1979-02-11",
+      "postcode": "ls63hn",
+      "guardian": null
+    },
+    "amountPence": 1250,
+    "notes": ""
+  }
+}
