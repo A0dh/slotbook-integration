@@ -1,0 +1,136 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { createSender, decideMember } from './sender.js';
+
+const guardian = { name: 'Chidi Okafor', phone: '+447700900412' };
+
+/** A mapped booking; `minor` makes the climber 12 at the session. */
+function booking(bookingId, { email = `${bookingId}@example.com`, minor = false, withGuardian = minor, flags = [] } = {}) {
+  return {
+    bookingId,
+    member: {
+      firstName: 'Evie',
+      lastName: 'Okafor',
+      email,
+      dateOfBirth: minor ? '2014-01-01' : '1980-01-01',
+      ...(withGuardian && { guardian }),
+      source: 'slotbook',
+      sourceRef: bookingId,
+    },
+    booking: { sessionStart: '2026-12-01T18:00:00Z', sessionType: 'course', amountPence: 4500, source: 'slotbook', sourceRef: bookingId },
+    flags,
+  };
+}
+
+/** Just enough CRM: members by email, bookings by idempotency key. */
+function fakeCrm({ existing = [] } = {}) {
+  const members = new Map(existing.map((m, n) => [m.email, { id: `mem_old${n}`, ...m }]));
+  const bookings = new Map();
+  const calls = { lookups: 0, memberBatches: [], bookingBatches: [] };
+  return {
+    calls,
+    members,
+    bookings,
+    async findMemberByEmail(email) {
+      calls.lookups++;
+      return members.get(email) ?? null;
+    },
+    async upsertMembers(batch) {
+      calls.memberBatches.push(batch);
+      return batch.map((m, index) => {
+        // Like the CRM: an email it already holds keeps its own details.
+        if (members.has(m.email)) return { index, status: 200, id: members.get(m.email).id, created: false };
+        members.set(m.email, { id: `mem_${members.size}`, ...m });
+        return { index, status: 201, id: members.get(m.email).id, created: true };
+      });
+    },
+    async createBookings(batch) {
+      calls.bookingBatches.push(batch);
+      return batch.map(({ idempotencyKey, ...b }, index) => {
+        const previous = bookings.get(idempotencyKey);
+        if (previous && JSON.stringify(previous) !== JSON.stringify(b)) return { index, status: 409, error: { code: 'idempotency_conflict' } };
+        bookings.set(idempotencyKey, b);
+        return { index, status: 201, id: `bkg_${idempotencyKey}` };
+      });
+    },
+  };
+}
+
+function setup(crmOptions) {
+  const crm = fakeCrm(crmOptions);
+  const send = createSender({ crm, summary: { flag() {} } });
+  return { crm, send };
+}
+
+describe('decideMember', () => {
+  const minor = booking('SB-2', { minor: true });
+  const minorAlone = booking('SB-3', { minor: true, withGuardian: false });
+
+  it('requires a guardian on the CRM record an under-18 booking lands on', () => {
+    assert.ok(decideMember(minorAlone, { dateOfBirth: '2014-01-01', guardian }, undefined).ok, 'already on record');
+    assert.deepEqual(decideMember(minor, { dateOfBirth: '2014-01-01' }, undefined), { ok: false, reason: 'guardian_not_on_crm_record' });
+    assert.deepEqual(decideMember(minorAlone, null, undefined), { ok: false, reason: 'guardian_required' });
+    assert.deepEqual(decideMember(minorAlone, null, guardian), { ok: true, guardian, recovered: true });
+  });
+});
+
+describe('SlotBook sender', () => {
+  it('creates members and bookings; a re-send creates nothing new, a changed one is caught', async () => {
+    const { crm, send } = setup();
+    const items = [booking('SB-1'), booking('SB-2', { minor: true })];
+    assert.deepEqual(await send(items), [{ status: 'imported' }, { status: 'imported' }]);
+    assert.equal(crm.calls.bookingBatches[0][0].idempotencyKey, 'slotbook:SB-1');
+    assert.deepEqual(crm.members.get('SB-2@example.com').guardian, guardian);
+
+    // A second run (new sender, same CRM): members are found, bookings replay.
+    const again = createSender({ crm, summary: { flag() {} } });
+    assert.deepEqual(await again(items), [{ status: 'imported' }, { status: 'imported' }]);
+    assert.equal(crm.bookings.size, 2);
+
+    // The same booking id with different details: the CRM's 409 is reported against that booking only.
+    const changed = booking('SB-1');
+    changed.booking.amountPence = 9999;
+    const third = createSender({ crm, summary: { flag() {} } });
+    assert.deepEqual(await third([changed, items[1]]), [{ status: 'rejected', reasons: ['conflicts_with_crm'] }, { status: 'imported' }]);
+  });
+
+  it('rejects a child booked under an adult already in the CRM', async () => {
+    const { send } = setup({ existing: [{ email: 'evie.okafor@example.org', dateOfBirth: '1961-05-05' }] });
+    const outcomes = await send([booking('SB-150002', { email: 'evie.okafor@example.org', minor: true })]);
+    assert.deepEqual(outcomes, [{ status: 'rejected', reasons: ['identity_conflict'] }]);
+  });
+
+  it('creates new members without looking them up', async () => {
+    const { crm, send } = setup();
+    const outcomes = await send([booking('SB-1'), booking('SB-2'), booking('SB-3', { email: 'SB-1@example.com' })]);
+    assert.deepEqual(outcomes, [{ status: 'imported' }, { status: 'imported' }, { status: 'imported' }]);
+    assert.equal(crm.calls.lookups, 0);
+  });
+
+  it('imports a booking whose member batch was saved but its response lost', async () => {
+    // The CRM saves the batch, the response times out, the client retries: the retry answers
+    // `created: false`. That used to fail every booking in the chunk; now the stored record is
+    // looked up and checked instead.
+    const { crm, send } = setup();
+    const upsert = crm.upsertMembers;
+    crm.upsertMembers = async (batch) => {
+      await upsert(batch); // the first attempt, saved but its response lost
+      return upsert(batch);
+    };
+    assert.deepEqual(await send([booking('SB-1'), booking('SB-2')]), [{ status: 'imported' }, { status: 'imported' }]);
+    assert.equal(crm.calls.lookups, 2);
+  });
+
+  it('decides against what the CRM holds when it already had the email', async () => {
+    const { crm, send } = setup({ existing: [{ email: 'SB-1@example.com', dateOfBirth: '1980-01-01' }] });
+    assert.deepEqual(await send([booking('SB-1')]), [{ status: 'imported' }]);
+    assert.equal(crm.calls.bookingBatches[0][0].memberId, 'mem_old0');
+  });
+
+  it('looks up an under-18 refused as new, in case the CRM already holds a guardian', async () => {
+    const { send } = setup({ existing: [{ email: 'SB-2@example.com', dateOfBirth: '2014-01-01', guardian }] });
+    assert.deepEqual(await send([booking('SB-2', { minor: true, withGuardian: false })]), [{ status: 'imported' }]);
+    const empty = setup();
+    assert.deepEqual(await empty.send([booking('SB-3', { minor: true, withGuardian: false })]), [{ status: 'rejected', reasons: ['guardian_required'] }]);
+  });
+});
