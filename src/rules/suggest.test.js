@@ -43,7 +43,17 @@ describe('profile', () => {
 });
 
 describe('suggest', () => {
-  it('fails clearly when the AI is unavailable, slow, refuses or answers badly', async () => {
+  it("checks the AI's answer, and fails clearly when the AI is unavailable, slow, refuses or answers badly", async () => {
+    const { fetchImpl: unsafe } = fakeFetch({
+      text: answer([
+        { field: 'password', op: 'lowercase', format: null, reason: 'unknown field' },
+        { field: 'postcode', op: 'run_shell', format: null, reason: 'unknown operation' },
+      ]),
+    });
+    const checked = await run(unsafe);
+    assert.deepEqual(checked.rules, [], 'only known fields and operations survive');
+    assert.equal(checked.errors.length, 2);
+
     const timeout = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
     const cases = [
       [fakeFetch({ status: 529 }), /responded 529 \(overloaded_error\)/],

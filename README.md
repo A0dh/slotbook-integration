@@ -202,8 +202,9 @@ write cleaning code, which a gym's staff couldn't review.
 
 A few tests for what matters most (`npm test`), not a full suite:
 - all 8 sample webhooks give the predicted outcome, with no personal data in the log; bad signatures get 401;
+  a CRM outage gets 503 so SlotBook retries;
 - signature edge cases (re-serialised JSON, replay window);
-- the guardian and identity decisions; a re-send creates nothing new;
+- the guardian and identity decisions, including the 18th birthday; a re-send creates nothing new, a changed one is caught;
 - validation policy for placeholder dates, formulas, unusable guardians;
 - UK date conversion across clock changes and impossible times;
 - 429 `Retry-After` and giving up after retries;

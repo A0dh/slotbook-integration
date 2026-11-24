@@ -35,9 +35,9 @@ describe('CRM client batch and lookup methods', () => {
 
   it('gives up after the configured number of attempts', async () => {
     const responses = Array.from({ length: RETRY_POLICY.attempts }, () => json(503, {}));
-    const { crm, calls } = clientWith(responses);
+    const { crm, calls, waits } = clientWith(responses);
     await assert.rejects(crm.createBookings([{}]), (err) => err instanceof CrmError && err.status === 503);
     assert.equal(calls.length, RETRY_POLICY.attempts);
+    assert.equal(waits.length, RETRY_POLICY.attempts - 1, 'backs off between attempts');
   });
-
 });

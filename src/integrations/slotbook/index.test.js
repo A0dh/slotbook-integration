@@ -51,10 +51,10 @@ after(() => {
   crmServer.close();
 });
 
-function post(body, { sign = true } = {}) {
+function post(body, { sign = true, url = appUrl } = {}) {
   const t = Math.floor(Date.now() / 1000);
   const signature = createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
-  return fetch(appUrl, { method: 'POST', body, headers: sign ? { 'slotbook-signature': `t=${t},v1=${signature}` } : {} });
+  return fetch(url, { method: 'POST', body, headers: sign ? { 'slotbook-signature': `t=${t},v1=${signature}` } : {} });
 }
 
 const stats = async () => (await fetch(`${crmUrl}/stats`, { headers: { 'x-api-key': 'k' } })).json();
@@ -81,24 +81,29 @@ describe('SlotBook webhook endpoint', () => {
     assert.equal(idempotentReplays, 1);
     assert.equal(members, 4, '01 and 07 are the same person; 04 and 08 never reach the CRM');
 
-    const log = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.deepEqual(log.map(({ ref, status, reasons, flags }) => ({ ref, status, reasons, flags })), [
+    // Whole entries (bar the time): refs and codes only, no personal data.
+    const log = readFileSync(logPath, 'utf8').trim().split('\n').map((line) => {
+      const { at, ...entry } = JSON.parse(line);
+      return entry;
+    });
+    assert.deepEqual(log, [
       { ref: 'SB-150004', status: 'rejected', reasons: ['guardian_required'], flags: [] },
-      { ref: 'SB-150005', status: 'imported', reasons: undefined, flags: ['notes_suspicious'] },
+      { ref: 'SB-150005', status: 'imported', flags: ['notes_suspicious'] },
       { ref: 'SB-150008', status: 'rejected', reasons: ['email_invalid'], flags: [] },
     ]);
-    assert.ok(!readFileSync(logPath, 'utf8').includes('@'), 'no personal data in the log');
   });
 
-  it('refuses unsigned or tampered webhooks', async () => {
+  it('refuses unsigned webhooks, and asks SlotBook to retry when the CRM is down', async () => {
     assert.equal((await post(sample('01-adult.json'), { sign: false })).status, 401);
-    const t = Math.floor(Date.now() / 1000);
-    const res = await fetch(appUrl, {
-      method: 'POST',
-      body: sample('01-adult.json').replace('1250', '1'),
-      headers: { 'slotbook-signature': `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${sample('01-adult.json')}`).digest('hex')}` },
-    });
-    assert.equal(res.status, 401);
-  });
 
+    const crmDown = { findMemberByEmail: async () => Promise.reject(new Error('CRM unreachable')) };
+    const handler = slotbookWebhookHandler({ crm: crmDown, logger, webhookSecret: () => secret, rulesPath, logPath });
+    const server = await listen((req, res) => handler(req, res));
+    try {
+      const res = await post(sample('01-adult.json'), { url: `http://localhost:${server.address().port}` });
+      assert.deepEqual([res.status, (await res.json()).status], [503, 'failed']);
+    } finally {
+      server.close();
+    }
+  });
 });

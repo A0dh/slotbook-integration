@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { createMapper } from './map.js';
-import { createValidator } from './validate.js';
+import { createValidator, isMinorAt } from './validate.js';
 
 const sample = JSON.parse(readFileSync(new URL('../../../data/slotbook/webhooks/02-under-18-with-guardian.json', import.meta.url), 'utf8'));
 const map = createMapper({ rules: [] });
@@ -27,5 +27,9 @@ describe('SlotBook validation', () => {
       [{ firstName: "=cmd|' /C calc'!A0" }, ['first_name_invalid']], // spreadsheet formula
     ];
     for (const [change, expected] of cases) assert.deepEqual(problemsWith(change), expected, JSON.stringify(change));
+
+    // Under 18 until the 18th birthday, on the session's date.
+    assert.equal(isMinorAt('2008-11-30', '2026-11-29T18:00:00Z'), true);
+    assert.equal(isMinorAt('2008-11-29', '2026-11-29T18:00:00Z'), false);
   });
 });

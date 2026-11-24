@@ -73,7 +73,7 @@ describe('decideMember', () => {
 });
 
 describe('SlotBook sender', () => {
-  it('creates members and bookings, keyed so a re-send creates nothing new', async () => {
+  it('creates members and bookings; a re-send creates nothing new, a changed one is caught', async () => {
     const { crm, send } = setup();
     const items = [booking('SB-1'), booking('SB-2', { minor: true })];
     assert.deepEqual(await send(items), [{ status: 'imported' }, { status: 'imported' }]);
@@ -84,6 +84,12 @@ describe('SlotBook sender', () => {
     const again = createSender({ crm, summary: { flag() {} } });
     assert.deepEqual(await again(items), [{ status: 'imported' }, { status: 'imported' }]);
     assert.equal(crm.bookings.size, 2);
+
+    // The same booking id with different details: the CRM's 409 is reported against that booking only.
+    const changed = booking('SB-1');
+    changed.booking.amountPence = 9999;
+    const third = createSender({ crm, summary: { flag() {} } });
+    assert.deepEqual(await third([changed, items[1]]), [{ status: 'rejected', reasons: ['conflicts_with_crm'] }, { status: 'imported' }]);
   });
 
   it('rejects a child booked under an adult already in the CRM', async () => {
@@ -91,5 +97,4 @@ describe('SlotBook sender', () => {
     const outcomes = await send([booking('SB-150002', { email: 'evie.okafor@example.org', minor: true })]);
     assert.deepEqual(outcomes, [{ status: 'rejected', reasons: ['identity_conflict'] }]);
   });
-
 });
