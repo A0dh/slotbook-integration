@@ -3,11 +3,17 @@
 //
 // Per chunk:
 //   1. A booking id seen before in this run is a duplicate.
-//   2. Look up each email in the CRM (once per run), because the CRM never updates a member:
-//      whatever it already holds is what the booking will be attached to.
-//   3. Decide per booking (decideMember): identity conflicts and the guardian rule.
-//   4. Create the members that don't exist yet, then the bookings, with idempotency keys so a
-//      retry or a re-run never creates a second booking.
+//   2. Decide per booking (decideMember): identity conflicts and the guardian rule, against what
+//      the CRM holds for its email. The CRM never updates a member, so whatever it already holds
+//      is what the booking will be attached to.
+//   3. Create first, look up only when needed: an email not seen yet in this run is assumed new
+//      and its member created. Only when the CRM answers that it already held the email
+//      (`created: false`), or every booking for it was refused as new, is it looked up and
+//      decided again. A fresh backfill then needs almost no lookups, and a member batch whose
+//      response was lost (timeout, 5xx) is retried into `created: false` and checked rather
+//      than failed.
+//   4. Create the bookings, with idempotency keys so a retry or a re-run never creates a second
+//      booking.
 
 import { isValidGuardian } from '../../lib/validators.js';
 import { isMinorAt } from './validate.js';
@@ -45,6 +51,43 @@ export function decideMember(item, known, guardianFromOtherBookings) {
 }
 
 /**
+ * Decides every booking for one email, in order, against what the CRM holds for it (`base`;
+ * null: nobody). With nobody, the first accepted booking defines the member to create and the
+ * later ones are checked against that member.
+ * @param {MappedBooking[]} items
+ * @param {number[]} indexes
+ * @param {KnownMember | null} base
+ * @param {(email: string, dateOfBirth: string) => Guardian | undefined} guardianFor
+ */
+function decideGroup(items, indexes, base, guardianFor) {
+  /** @type {number[]} */
+  const accepted = [];
+  /** @type {[number, string][]} */
+  const rejected = [];
+  /** @type {number[]} */
+  const recovered = [];
+  let current = base;
+  /** @type {object | undefined} */
+  let create;
+  for (const i of indexes) {
+    const { member } = items[i];
+    const decision = decideMember(items[i], current, guardianFor(member.email, member.dateOfBirth));
+    if (!decision.ok) {
+      rejected.push([i, decision.reason]);
+      continue;
+    }
+    if (decision.recovered) recovered.push(i);
+    if (!current) {
+      const { guardian: _, ...rest } = member;
+      create = decision.guardian ? { ...rest, guardian: decision.guardian } : rest;
+      current = create;
+    }
+    accepted.push(i);
+  }
+  return { accepted, rejected, recovered, create };
+}
+
+/**
  * @param {{
  *   crm: Pick<import('../../pipeline/crm-client.js').CrmClient, 'findMemberByEmail' | 'upsertMembers' | 'createBookings'>,
  *   summary: Pick<import('../../pipeline/summary.js').RunSummary, 'flag'>,
@@ -74,76 +117,88 @@ export function createSender({ crm, summary, guardianFor = () => undefined, sign
       fresh.push(i);
     });
 
-    // 2. What the CRM already holds for each email. A lookup has already been retried when it
-    // throws, so the CRM is down: fail the rest of the chunk rather than wait on each record.
-    const lookedUp = [];
-    let lookupError;
+    // 2. Decide each email's bookings against what is known. A lookup has already been retried
+    // when it throws, so the CRM is down: fail the rest of the chunk's lookups rather than wait.
+    /** @type {Map<string, number[]>} email → its bookings in this chunk, in order */
+    const byEmail = new Map();
     for (const i of fresh) {
-      if (lookupError) {
-        fail(i, lookupError);
-        continue;
-      }
       const { email } = items[i].member;
-      if (!known.has(email)) {
-        try {
-          known.set(email, await crm.findMemberByEmail(email, options));
-        } catch (err) {
-          lookupError = err;
-          fail(i, err);
-          continue;
-        }
-      }
-      lookedUp.push(i);
+      if (!byEmail.has(email)) byEmail.set(email, []);
+      byEmail.get(email).push(i);
     }
 
-    // 3. Decide; the first new booking for an email defines the member to create.
-    /** @type {Map<string, { member: object, indexes: number[] }>} */
-    const toCreate = new Map();
     const accepted = [];
     /** Flags decided here, recorded only if the booking is imported. */
     const recovered = new Set();
-    for (const i of lookedUp) {
-      const { member } = items[i];
-      const pending = toCreate.get(member.email);
-      const decision = decideMember(items[i], pending ? pending.member : known.get(member.email) ?? null, guardianFor(member.email, member.dateOfBirth));
-      if (!decision.ok) {
-        reject(i, decision.reason);
-        continue;
+    const settle = ({ accepted: ok, rejected, recovered: rec }) => {
+      for (const [i, reason] of rejected) reject(i, reason);
+      for (const i of rec) recovered.add(i);
+      accepted.push(...ok);
+    };
+    let lookupError;
+    /** Looks the email up into `known`; false (its bookings failed) when the CRM can't answer. */
+    const lookUp = async (email, indexes) => {
+      if (!lookupError) {
+        try {
+          known.set(email, await crm.findMemberByEmail(email, options));
+          return true;
+        } catch (err) {
+          lookupError = err;
+        }
       }
-      if (decision.recovered) recovered.add(i);
-      if (pending) pending.indexes.push(i);
-      else if (!known.get(member.email)) {
-        const { guardian: _, ...rest } = member;
-        const newMember = decision.guardian ? { ...rest, guardian: decision.guardian } : rest;
-        toCreate.set(member.email, { member: newMember, indexes: [i] });
-      }
-      accepted.push(i);
+      for (const i of indexes) fail(i, lookupError);
+      return false;
+    };
+
+    /** @type {{ email: string, indexes: number[], decided: ReturnType<typeof decideGroup> }[]} */
+    const toCreate = [];
+    const toLookUp = [];
+    for (const [email, indexes] of byEmail) {
+      const base = known.get(email) ?? null;
+      const decided = decideGroup(items, indexes, base, guardianFor);
+      if (decided.create) toCreate.push({ email, indexes, decided });
+      // Refused as a new member (e.g. an under-18 with no guardian): an existing record might
+      // still take it, so check what the CRM holds, unless this run already did.
+      else if (!known.has(email)) toLookUp.push({ email, indexes });
+      else settle(decided);
+    }
+    for (const { email, indexes } of toLookUp) {
+      if (await lookUp(email, indexes)) settle(decideGroup(items, indexes, known.get(email) ?? null, guardianFor));
     }
 
-    // 4a. Create new members.
-    const creating = [...toCreate.values()];
-    if (creating.length > 0) {
+    // 3. Create new members. `created: false` means the CRM already held the email (another
+    // request, or our own batch retried after a lost response) and kept its own details: look it
+    // up and decide again against what it holds.
+    if (toCreate.length > 0) {
+      const heldAlready = [];
       try {
-        const results = await crm.upsertMembers(creating.map((c) => c.member), options);
-        creating.forEach(({ member, indexes }, n) => {
+        const results = await crm.upsertMembers(toCreate.map((c) => c.decided.create), options);
+        toCreate.forEach((c, n) => {
           const result = results.find((r) => r.index === n);
-          if (result?.id && result.created === false) {
-            // Created by another request since our lookup (e.g. two webhooks at once). The CRM
-            // keeps its own details, unchecked here: fail, so a retry checks the stored record.
-            known.delete(member.email);
-            for (const i of indexes) fail(i, new Error('Member was created meanwhile; retry to check it'));
-          } else if (result?.id && result.status < 300) known.set(member.email, { id: result.id, dateOfBirth: member.dateOfBirth, guardian: member.guardian });
-          else for (const i of indexes) {
-            if (result?.status === 422) reject(i, `member_refused_by_crm(${Object.keys(result.error?.fields ?? {}).join(',')})`);
-            else fail(i, new Error(result ? `CRM responded ${result.status} for the member` : 'No result for the member'));
+          const member = /** @type {MappedBooking['member']} */ (c.decided.create);
+          if (result?.id && result.created === false) heldAlready.push(c);
+          else if (result?.id && result.status < 300) {
+            known.set(c.email, { id: result.id, dateOfBirth: member.dateOfBirth, guardian: member.guardian });
+            settle(c.decided);
+          } else {
+            for (const [i, reason] of c.decided.rejected) reject(i, reason);
+            for (const i of c.decided.accepted) {
+              if (result?.status === 422) reject(i, `member_refused_by_crm(${Object.keys(result.error?.fields ?? {}).join(',')})`);
+              else fail(i, new Error(result ? `CRM responded ${result.status} for the member` : 'No result for the member'));
+            }
           }
         });
       } catch (err) {
-        for (const { indexes } of creating) for (const i of indexes) fail(i, err);
+        for (const { indexes } of toCreate) for (const i of indexes) fail(i, err);
+      }
+      for (const { email, indexes } of heldAlready) {
+        if (!(await lookUp(email, indexes))) continue;
+        if (known.get(email)) settle(decideGroup(items, indexes, known.get(email), guardianFor));
+        else for (const i of indexes) fail(i, new Error('CRM reported the member as existing but has no record of it'));
       }
     }
 
-    // 4b. Create bookings for everything still accepted.
+    // 4. Create bookings for everything still accepted.
     const ready = accepted.filter((i) => !outcomes[i] && known.get(items[i].member.email)?.id);
     for (const i of accepted) if (!outcomes[i] && !ready.includes(i)) fail(i, new Error('No member id'));
     if (ready.length === 0) return outcomes;

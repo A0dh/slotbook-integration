@@ -113,7 +113,7 @@ so the existing integrations are unchanged:
 
 ```
 webhook ─ signature ─┐
-                     ├─► map (+ approved rules) ─► validate ─► sender: dedupe, CRM lookup, identity & guardian ─► CRM
+                     ├─► map (+ approved rules) ─► validate ─► sender: dedupe, identity & guardian, create or look up ─► CRM
 CSV row ─────────────┘
 ```
 
@@ -194,8 +194,9 @@ write cleaning code, which a gym's staff couldn't review.
 
 - Members and bookings are sent in batches of 100: about 1,000 write requests for the backfill.
 - 429s wait for `Retry-After`; 5xx, network errors and timeouts back off with jitter; each attempt times out at 10 s.
-- One lookup (GET) per distinct email per run, about 23,000 for the backfill. That is the cost of checking
-  identity and guardian against what the CRM already holds, and the first thing to optimise.
+- Members are created first and looked up only when the CRM says it already held the email, or when a booking
+  was refused as new (an under-18 with no guardian). A fresh backfill needs almost no lookups; a re-run needs one
+  per email. A member batch whose response was lost is retried into "already held", then checked, not failed.
 - If the CRM is down, a chunk fails fast (reported, safe to re-run) instead of retrying record by record.
 
 ## Tests
@@ -219,7 +220,7 @@ outage mid-import, concurrent webhooks for the same new member, and property tes
 - **Member updates**: needs a CRM update endpoint; today later changes are not applied.
 - **A durable queue for webhooks** the CRM couldn't take for longer than SlotBook's 24 hours of retries.
 - **A staff page** for rejected and flagged records, with fix-and-retry; today they are in the summary and the webhook log.
-- **Fewer lookups**: parallel lookups with a concurrency limit.
+- **Faster re-runs**: parallel lookups with a concurrency limit.
 - **Rule review UX**: show the rules a new approval would remove; built-in suggestions when the AI is down.
 - **Title case** gets `MCDONALD` → `Mcdonald`; names with prefixes need a list or human review.
 - Data protection: retention for rejected data, and a processing agreement if more than shapes is ever sent to an AI.

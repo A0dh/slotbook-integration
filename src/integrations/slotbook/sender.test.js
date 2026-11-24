@@ -38,7 +38,9 @@ function fakeCrm({ existing = [] } = {}) {
     async upsertMembers(batch) {
       calls.memberBatches.push(batch);
       return batch.map((m, index) => {
-        if (!members.has(m.email)) members.set(m.email, { id: `mem_${members.size}`, ...m });
+        // Like the CRM: an email it already holds keeps its own details.
+        if (members.has(m.email)) return { index, status: 200, id: members.get(m.email).id, created: false };
+        members.set(m.email, { id: `mem_${members.size}`, ...m });
         return { index, status: 201, id: members.get(m.email).id, created: true };
       });
     },
@@ -96,5 +98,39 @@ describe('SlotBook sender', () => {
     const { send } = setup({ existing: [{ email: 'evie.okafor@example.org', dateOfBirth: '1961-05-05' }] });
     const outcomes = await send([booking('SB-150002', { email: 'evie.okafor@example.org', minor: true })]);
     assert.deepEqual(outcomes, [{ status: 'rejected', reasons: ['identity_conflict'] }]);
+  });
+
+  it('creates new members without looking them up', async () => {
+    const { crm, send } = setup();
+    const outcomes = await send([booking('SB-1'), booking('SB-2'), booking('SB-3', { email: 'SB-1@example.com' })]);
+    assert.deepEqual(outcomes, [{ status: 'imported' }, { status: 'imported' }, { status: 'imported' }]);
+    assert.equal(crm.calls.lookups, 0);
+  });
+
+  it('imports a booking whose member batch was saved but its response lost', async () => {
+    // The CRM saves the batch, the response times out, the client retries: the retry answers
+    // `created: false`. That used to fail every booking in the chunk; now the stored record is
+    // looked up and checked instead.
+    const { crm, send } = setup();
+    const upsert = crm.upsertMembers;
+    crm.upsertMembers = async (batch) => {
+      await upsert(batch); // the first attempt, saved but its response lost
+      return upsert(batch);
+    };
+    assert.deepEqual(await send([booking('SB-1'), booking('SB-2')]), [{ status: 'imported' }, { status: 'imported' }]);
+    assert.equal(crm.calls.lookups, 2);
+  });
+
+  it('decides against what the CRM holds when it already had the email', async () => {
+    const { crm, send } = setup({ existing: [{ email: 'SB-1@example.com', dateOfBirth: '1980-01-01' }] });
+    assert.deepEqual(await send([booking('SB-1')]), [{ status: 'imported' }]);
+    assert.equal(crm.calls.bookingBatches[0][0].memberId, 'mem_old0');
+  });
+
+  it('looks up an under-18 refused as new, in case the CRM already holds a guardian', async () => {
+    const { send } = setup({ existing: [{ email: 'SB-2@example.com', dateOfBirth: '2014-01-01', guardian }] });
+    assert.deepEqual(await send([booking('SB-2', { minor: true, withGuardian: false })]), [{ status: 'imported' }]);
+    const empty = setup();
+    assert.deepEqual(await empty.send([booking('SB-3', { minor: true, withGuardian: false })]), [{ status: 'rejected', reasons: ['guardian_required'] }]);
   });
 });
